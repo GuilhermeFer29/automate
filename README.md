@@ -75,5 +75,4 @@ ___
 
 ## Dúvidas
 
-Dúvidas gerais sobre a execução dos desafios poderão ser enviados entrando em contato com a equipe, ou
-na [Issue](https://github.com/jaymeklein/automate/issues/1) disponibilizada para este fim.
+Dúvidas gerais sobre a execução dos desafios poderão ser enviados entrando em contato com a equipe
