@@ -67,7 +67,7 @@ ___
 
 ## Enviando os Desafios
 1. Envie os arquivos do desafio ao repositório **PRIVADO** criado.
-3. Libere acesso ao repositório para o usuário `jaymeklein`
+3. Libere acesso ao repositório para o usuário `felipedmac`
 4. Comunique a equipe Wind da finalização das atividades e nos forneça o link do seu repositório.
 
 **OBS: O repositório deverá ser PRIVADO**
