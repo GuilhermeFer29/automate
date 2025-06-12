@@ -36,19 +36,22 @@ class Desafio01:
             print('Baixando captcha:', src)
             try:
                 if src.startswith('data:image'):
-                    import base64
-                    header, b64data = src.split(',', 1)
-                    print(header)
-                    b64data = b64data.replace('\n', '').replace('\r', '')
-                    print(b64data[:100])
-                    print(b64data[-100:])
-                    while len(b64data) % 4 != 0:
-                        b64data += '='
-                    image_data = base64.b64decode(b64data)
-                    print(len(image_data))
-                    with open('captcha_debug.png', 'wb') as f:
-                        f.write(image_data)
-                    image = Image.open('captcha_debug.png')
+                    import base64, re, cv2
+                    _, b64 = src.split(',', 1)
+                    b64 = re.sub(r'[^A-Za-z0-9+/=]', '', b64)
+                    while len(b64) % 4: b64 += '='
+                    with open('a.png', 'wb') as f: f.write(base64.b64decode(b64))
+                    try:
+                        with open('a.png', 'rb') as f:
+                            img = Image.open(f); img.load(); img.save('b.png')
+                        image = Image.open('b.png')
+                    except:
+                        i = cv2.imread('a.png')
+                        if i is not None:
+                            cv2.imwrite('c.jpg', i)
+                            image = Image.open('c.jpg')
+                        else:
+                            break
                 else:
                     r = requests.get(src)
                     image = Image.open(BytesIO(r.content))
