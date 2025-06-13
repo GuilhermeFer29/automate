@@ -161,7 +161,7 @@ cython_debug/
 licitacoes
 downloads
 
-*.xlsx
+
 *.csv
 *.zip
 *.json
