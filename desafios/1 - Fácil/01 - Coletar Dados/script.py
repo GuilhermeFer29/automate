@@ -10,7 +10,7 @@ import time
 try:
     import openpyxl
 except ModuleNotFoundError:
-    print('⚠️  Bibliotec​a openpyxl não encontrada. Execute: pip install openpyxl')
+    print('Biblioteca openpyxl não encontrada. Execute: pip install openpyxl')
     exit(1)
 
 
@@ -44,7 +44,7 @@ class Desafio01:
             try:
                 WebDriverWait(self.navegador, 30).until(EC.presence_of_element_located((By.CSS_SELECTOR, '.ratings [itemprop="reviewCount"]')))
             except Exception:
-                print('⚠️  Ratings não carregaram a tempo, continuando...')
+                print(' Ratings não carregaram a tempo, continuando...')
             produtos = self.navegador.find_elements(By.CLASS_NAME, 'thumbnail')
             linhas = []
             for p in produtos:

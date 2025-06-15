@@ -26,3 +26,7 @@ urllib3==2.2.2
 webdriver-manager==4.0.2
 websocket-client==1.8.0
 wsproto==1.2.0
+numpy>=1.23
+opencv-python>=4.8
+pillow>=10.0
+tensorflow>=2.12
