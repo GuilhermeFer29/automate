@@ -17,7 +17,7 @@ import numpy as np
 import base64
 
 CHARS = string.ascii_uppercase + string.digits
-MODEL_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..', 'captcha_cnn', 'captcha_char_cnn.h5'))
+MODEL_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..', 'captcha_cnn', 'best_model.h5'))
 cnn_model = None
 reader = easyocr.Reader(['en'], gpu=False)
 

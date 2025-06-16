@@ -5,3 +5,4 @@
 4. Preencher o input
 5. Clicar em `Validate`
 6. Garantir que a porcentagem de acerto seja `>= 75%`
+
