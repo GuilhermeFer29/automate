@@ -21,12 +21,14 @@ import glob
 import os
 import tensorflow as tf
 from tqdm import tqdm  # Correção da importação
+from tqdm.keras import TqdmCallback
+import uuid
 
 # Configuração de recursos
 os.environ['TF_NUM_INTRAOP_THREADS'] = str(os.cpu_count())
-os.environ['TF_NUM_INTEROP_THREADS'] = '2'
+os.environ['TF_NUM_INTEROP_THREADS'] = str(os.cpu_count())
 tf.config.threading.set_intra_op_parallelism_threads(os.cpu_count())
-tf.config.threading.set_inter_op_parallelism_threads(2)
+tf.config.threading.set_inter_op_parallelism_threads(os.cpu_count())
 tf.config.set_soft_device_placement(True)
 
 physical_devices = tf.config.list_physical_devices('CPU')
@@ -139,40 +141,19 @@ class AdvancedCaptchaSolver:
     
     def build_optimized_model(self):
         """Modelo corrigido com conexões adequadas"""
-        inputs = layers.Input(shape=(self.img_height, self.img_width, 1))
-        
-        # Blocos convolucionais (mantido igual)
-        x = layers.Conv2D(48, (3,3), padding='same', kernel_regularizer=regularizers.l2(1e-4))(inputs)
-        x = layers.BatchNormalization()(x)
-        x = layers.Activation('relu')(x)
+        inputs = layers.Input(shape=(40, 120, 1))  # Dimensões atualizadas
+        x = layers.Conv2D(32, (3,3), activation='relu')(inputs)
         x = layers.MaxPooling2D((2,2))(x)
-        x = layers.SpatialDropout2D(0.25)(x)
-        
-        x = layers.Conv2D(96, (3,3), padding='same', kernel_regularizer=regularizers.l2(1e-4))(x)
-        x = layers.BatchNormalization()(x)
-        x = layers.Activation('relu')(x)
+        x = layers.Conv2D(64, (3,3), activation='relu')(x)
         x = layers.MaxPooling2D((2,2))(x)
-        x = layers.SpatialDropout2D(0.3)(x)
+        x = layers.Flatten()(x)
+        x = layers.Dense(128, activation='relu')(x)
         
-        x = layers.Conv2D(192, (3,3), padding='same', kernel_regularizer=regularizers.l2(1e-4))(x)
-        x = layers.BatchNormalization()(x)
-        x = layers.Activation('relu')(x)
-        x = layers.Conv2D(192, (3,3), padding='same', activation='relu')(x)
-        x = layers.MaxPooling2D((2,2))(x)
-        x = layers.SpatialDropout2D(0.4)(x)
-        
-        x = layers.GlobalMaxPooling2D()(x)
-        x = layers.Dense(384, activation='selu', kernel_initializer='lecun_normal')(x)
-        x = layers.Dropout(0.5)(x)
-        
-        # Saídas conectadas corretamente
         output_layers = {}
         for i in range(self.max_length):
             output_layers[f'char_{i}'] = layers.Dense(self.num_chars, activation='softmax', name=f'char_{i}')(x)
         
         self.model = models.Model(inputs=inputs, outputs=output_layers)
-        
-        # Compilação
         self.model.compile(
             optimizer=self.optimizer,
             loss={name: 'sparse_categorical_crossentropy' for name in output_layers.keys()},
@@ -285,28 +266,31 @@ class AdvancedCaptchaSolver:
             encoded = [char_to_idx[c] for c in padded]
             labels.append(encoded)
         
-        print("\n🔍 Fase 4/4: Criando dataset final...")
-        labels_dict = {
-            f'char_{i}': tf.constant([label[i] for label in labels])
-            for i in range(self.max_length)
-        }
-        
-        def load_image(path):
-            try:
-                raw = tf.io.read_file(path)
-                image = tf.image.decode_image(raw, channels=1, expand_animations=False)
-                image = tf.image.resize(image, [50, 180])
-                return tf.image.convert_image_dtype(image, tf.float32)
-            except Exception:
-                # retorna imagem preta caso corrompida
-                return tf.zeros([50, 180, 1], dtype=tf.float32)
-        
-        paths = [s[0] for s in samples]
-        images = tf.stack([load_image(p) for p in tqdm(paths, desc="Carregando")])
-        images = tf.image.resize(images, [50, 180])
-        
-        dataset = tf.data.Dataset.from_tensor_slices((images, labels_dict))
-        return dataset.batch(batch_size).prefetch(tf.data.AUTOTUNE)
+        print("\n🔍 Fase 4/4: Criando dataset final (streaming) ...")
+        # Constroi tensores para streaming
+        labels_dict = {f'char_{i}': tf.constant([lab[i] for lab in labels], dtype=tf.int32) for i in range(self.max_length)}
+        paths_tensor = tf.constant([s[0] for s in samples])
+
+        def _parse_fn(path, *label_values):
+            raw = tf.io.read_file(path)
+            img = tf.image.decode_png(raw, channels=1)
+            img = tf.image.resize(img, [40, 120], method='nearest')  # Reduzir dimensões
+            img = tf.image.convert_image_dtype(img, tf.float16)
+            label_dict = {f'char_{i}': label_values[i] for i in range(self.max_length)}
+            return img, label_dict
+
+        # Dataset de caminhos + labels transposto para lista
+        label_tensors = [labels_dict[f'char_{i}'] for i in range(self.max_length)]
+        cache_dir = f'/tmp/captcha_cache_{uuid.uuid4()}'
+        dataset = (
+            tf.data.Dataset.from_tensor_slices((paths_tensor, *label_tensors))
+              .shuffle(buffer_size=10000)  # Buffer menor para economizar RAM
+              .map(_parse_fn, num_parallel_calls=tf.data.AUTOTUNE)
+              .cache(cache_dir)
+              .batch(batch_size)
+              .prefetch(2)  # Prefetch menor para evitar sobrecarga
+        )
+        return dataset
 
     def train_model(self, data_dir, epochs=30, batch_size=128):
 
@@ -317,6 +301,7 @@ class AdvancedCaptchaSolver:
         num_samples = len(file_list)
         steps_per_epoch = max(1, num_samples // batch_size)
         print(f"\n📊 Steps por época: {steps_per_epoch} (Total samples: {num_samples})")
+
         
         # Criar dataset APÓS a contagem
         train_ds = self.create_dataset(data_dir, batch_size)
@@ -336,7 +321,7 @@ class AdvancedCaptchaSolver:
                 patience=15,
                 mode='max',
                 restore_best_weights=True),
-            CustomCallback()
+            TqdmCallback(verbose=1)
         ]
         
         history = self.model.fit(
@@ -435,7 +420,13 @@ def test_model_compatibility():
     print("\n🧠 Teste de compatibilidade do modelo:")
     print(f"Output shapes: {[o.shape for o in output]}")
 
+import argparse
+
 def main():
+    parser = argparse.ArgumentParser(description="Treina o modelo CAPTCHA CNN")
+    parser.add_argument('--epochs', type=int, default=30, help='Número de épocas')
+    parser.add_argument('--batch_size', type=int, default=128, help='Tamanho do lote')
+    args = parser.parse_args()
     # Configurações com verificação
     base_dir = '/home/guilherme/Documentos/GitHub/automate/captcha_cnn/imagens'
     
@@ -469,11 +460,10 @@ def main():
     # Treinamento com novos parâmetros
     print("\nIniciando treinamento...")
     history = solver.train_model(
-        data_dir, 
-        epochs=30,       # Aumentado para 30 épocas
-        batch_size=128   # Aumentado para 128
-    )
-    
+        data_dir,
+        epochs=args.epochs,
+        batch_size=args.batch_size
+    )  
     # Avaliação
     print("\nAvaliando modelo...")
     accuracy = solver.evaluate_model(data_dir)
