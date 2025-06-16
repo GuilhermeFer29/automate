@@ -3,8 +3,14 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Reduz logs do TensorFlow
 import cv2
 import numpy as np
 import tensorflow as tf
-from tensorflow.python.framework.ops import disable_eager_execution
-disable_eager_execution()  # Melhora performance em CPU
+tf.config.run_functions_eagerly(True)
+# Força o pipeline tf.data a rodar em modo eager.
+try:
+    tf.data.experimental.enable_debug_mode()
+except AttributeError:
+    # Versões antigas do TensorFlow não possuem debug_mode
+    pass
+
 from tensorflow.keras import layers, models, optimizers, regularizers, callbacks
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 from sklearn.model_selection import train_test_split
@@ -53,7 +59,7 @@ class AdvancedCaptchaSolver:
         
         self.img_width = img_width
         self.img_height = img_height
-        self.max_length = max_length
+        self.max_length = max_length  # será atualizado dinamicamente na criação do dataset
         
         # Caracteres dinâmicos com especiais
         self.CHARS = self.get_all_chars('/home/guilherme/Documentos/GitHub/automate/captcha_cnn/imagens')
@@ -170,8 +176,7 @@ class AdvancedCaptchaSolver:
         self.model.compile(
             optimizer=self.optimizer,
             loss={name: 'sparse_categorical_crossentropy' for name in output_layers.keys()},
-            metrics=['accuracy'],
-            weighted_metrics=['accuracy']
+            metrics={name: 'accuracy' for name in output_layers.keys()}
         )
         
         self.total_params = self.model.count_params() / 1e6
@@ -242,8 +247,15 @@ class AdvancedCaptchaSolver:
         for root, _, files in tqdm(os.walk(data_dir), desc="Progresso"):
             for file in files:
                 if file.lower().endswith(('.png', '.jpg', '.jpeg')):
+                    full_path = os.path.join(root, file)
+                    # ignora arquivos vazios / corrompidos
+                    try:
+                        if os.path.getsize(full_path) == 0:
+                            continue
+                    except OSError:
+                        continue
                     label = os.path.basename(file).split('_')[0]
-                    samples.append((os.path.join(root, file), label))
+                    samples.append((full_path, label))
                     if len(samples) % 5000 == 0:
                         print(f"✓ {len(samples)} arquivos processados")
 
@@ -252,28 +264,42 @@ class AdvancedCaptchaSolver:
         for _, label in tqdm(samples, desc="Processando"):
             all_chars.update(label)
         
+        # Adiciona caractere de padding '-' se ainda não existir
+        all_chars.add('-')
         self.CHARS = sorted(all_chars)
+        self.num_chars = len(self.CHARS)
         print(f"\n🔤 Caracteres únicos ({len(self.CHARS)}): {''.join(self.CHARS)}")
         
         char_to_idx = {char: idx for idx, char in enumerate(self.CHARS)}
         max_len = max(len(label) for _, label in samples)
+        # Atualiza dinamicamente self.max_length para maior valor encontrado
+        if max_len != self.max_length:
+            print(f"ℹ️  max_length atualizado de {self.max_length} para {max_len}")
+            self.max_length = max_len
+        target_len = self.max_length
         
         print(f"\n🔍 Fase 3/4: Processando labels (max_len={max_len})...")
         labels = []
         for path, label in tqdm(samples, desc="Convertendo"):
-            encoded = [char_to_idx.get(c, -1) for c in label] + [-1]*(max_len - len(label))
+            padded = label.ljust(target_len, '-')  # usa '-' como padding temporário
+            encoded = [char_to_idx[c] for c in padded]
             labels.append(encoded)
         
         print("\n🔍 Fase 4/4: Criando dataset final...")
         labels_dict = {
             f'char_{i}': tf.constant([label[i] for label in labels])
-            for i in range(5)
+            for i in range(self.max_length)
         }
         
         def load_image(path):
-            image = tf.io.read_file(path)
-            image = tf.image.decode_image(image, channels=1, expand_animations=False)
-            return tf.image.convert_image_dtype(image, tf.float32)
+            try:
+                raw = tf.io.read_file(path)
+                image = tf.image.decode_image(raw, channels=1, expand_animations=False)
+                image = tf.image.resize(image, [50, 180])
+                return tf.image.convert_image_dtype(image, tf.float32)
+            except Exception:
+                # retorna imagem preta caso corrompida
+                return tf.zeros([50, 180, 1], dtype=tf.float32)
         
         paths = [s[0] for s in samples]
         images = tf.stack([load_image(p) for p in tqdm(paths, desc="Carregando")])
@@ -283,14 +309,22 @@ class AdvancedCaptchaSolver:
         return dataset.batch(batch_size).prefetch(tf.data.AUTOTUNE)
 
     def train_model(self, data_dir, epochs=30, batch_size=128):
-        tf.config.run_functions_eagerly(True)
+
         
-        train_ds = self.create_dataset(data_dir, batch_size)
-        
-        # Cálculo definitivo e seguro de steps_per_epoch
-        num_samples = sum(1 for _ in train_ds.unbatch())
+        # Contagem direta de arquivos PNG
+        pattern = os.path.join(data_dir, '**', '*.png')
+        file_list = glob.glob(pattern, recursive=True)
+        num_samples = len(file_list)
         steps_per_epoch = max(1, num_samples // batch_size)
         print(f"\n📊 Steps por época: {steps_per_epoch} (Total samples: {num_samples})")
+        
+        # Criar dataset APÓS a contagem
+        train_ds = self.create_dataset(data_dir, batch_size)
+
+        # Garante que o modelo possui o mesmo número de saídas que max_length
+        if self.model is None or len(self.model.outputs) != self.max_length:
+            print(f"🔄 Reconstruindo modelo para {self.max_length} saídas...")
+            self.build_optimized_model()
         
         callbacks = [
             tf.keras.callbacks.ModelCheckpoint(
@@ -313,7 +347,7 @@ class AdvancedCaptchaSolver:
             verbose=0
         )
         
-        tf.config.run_functions_eagerly(False)
+
         return history
 
     def evaluate_model(self, test_dir):
