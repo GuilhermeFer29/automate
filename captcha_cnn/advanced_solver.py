@@ -263,7 +263,7 @@ class AdvancedCaptchaSolver:
             callbacks.BackupAndRestore(
                 backup_dir=os.path.join(model_save_path, 'backup')
             ),
-            TqdmCallback(verbose=0)  # Barra de progresso
+            TqdmCallback(verbose=2)  # Barra de progresso detalhada e em tempo real para cada época
         ]
         logger.info("ETAPA 4/5: Configuração de callbacks concluída.")
         
