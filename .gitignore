@@ -172,3 +172,5 @@ downloads
 *.txt
 *.log
 *.pyc
+.captcha_cache
+captcha_cnn
