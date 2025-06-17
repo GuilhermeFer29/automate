@@ -170,51 +170,65 @@ class AdvancedCaptchaSolver:
         return dataset
 
     def build_optimized_model(self):
-        """Constrói modelo com regularização e batch normalization"""
+        """Constrói modelo com data augmentation, regularização e batch normalization"""
         logger.info("ETAPA 3/5: Construindo o modelo...")
         input_layer = layers.Input(shape=(40, 120, 1), name='input')
+
+        # Data Augmentation Block
+        # Estas camadas são ativas apenas durante o treinamento.
+        data_augmentation_layers = tf.keras.Sequential([
+            layers.RandomFlip("horizontal"), # Inversão horizontal é mais segura para texto
+            layers.RandomRotation(0.05),      # Rotação pequena (e.g., +/- 5%)
+            layers.RandomZoom(0.05),        # Zoom pequeno (e.g., +/- 5%)
+            # layers.RandomContrast(0.05)   # Contraste pode ser adicionado se necessário
+        ], name='data_augmentation')
+        
+        x = data_augmentation_layers(input_layer) # Aplicar augmentation à entrada
         
         # Bloco Convolucional 1
-        x = layers.Conv2D(32, (3, 3), activation='relu', padding='same')(input_layer)
+        # A primeira camada convolucional agora recebe 'x' (saída da augmentation)
+        x = layers.Conv2D(32, (3, 3), activation='relu', padding='same', kernel_regularizer=regularizers.l2(0.001))(x) 
         x = layers.BatchNormalization()(x)
         x = layers.MaxPooling2D((2, 2))(x)
-        x = layers.Dropout(0.25)(x)
+        x = layers.Dropout(0.3)(x) # Aumentado de 0.25
         
         # Bloco Convolucional 2
-        x = layers.Conv2D(64, (3, 3), activation='relu', padding='same')(x)
+        x = layers.Conv2D(64, (3, 3), activation='relu', padding='same', kernel_regularizer=regularizers.l2(0.001))(x)
         x = layers.BatchNormalization()(x)
         x = layers.MaxPooling2D((2, 2))(x)
-        x = layers.Dropout(0.25)(x)
+        x = layers.Dropout(0.3)(x) # Aumentado de 0.25
         
         # Bloco Convolucional 3
-        x = layers.Conv2D(128, (3, 3), activation='relu', padding='same')(x)
+        x = layers.Conv2D(128, (3, 3), activation='relu', padding='same', kernel_regularizer=regularizers.l2(0.001))(x)
         x = layers.BatchNormalization()(x)
         x = layers.MaxPooling2D((2, 2))(x)
-        x = layers.Dropout(0.25)(x)
+        x = layers.Dropout(0.3)(x) # Aumentado de 0.25
         
         # Camadas Densas
         x = layers.Flatten()(x)
-        x = layers.Dense(256, activation='relu', kernel_regularizer=regularizers.l2(0.001))(x)
+        # Camada Densa principal já tinha L2, mantido.
+        x = layers.Dense(256, activation='relu', kernel_regularizer=regularizers.l2(0.001))(x) 
         x = layers.BatchNormalization()(x)
-        x = layers.Dropout(0.5)(x)
+        x = layers.Dropout(0.5)(x) # Mantido em 0.5, já é uma taxa alta.
         
         # Múltiplas saídas (uma para cada caractere)
+        # Adicionada regularização L2 às camadas de saída.
         outputs = [
-            layers.Dense(len(self.CHARS), activation='linear', name=f'char_{i}')(x)
+            layers.Dense(len(self.CHARS), activation='linear', name=f'char_{i}', kernel_regularizer=regularizers.l2(0.001))(x)
             for i in range(self.max_length)
         ]
         
         self.model = models.Model(inputs=input_layer, outputs=outputs)
         
-        # Compilar modelo
+        # Compilar modelo (o otimizador Adam com lr=0.0001 é definido no __init__)
         loss_function = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
         self.model.compile(
-            optimizer=self.optimizer,
+            optimizer=self.optimizer, # self.optimizer já está configurado
             loss={f'char_{i}': loss_function for i in range(self.max_length)},
             metrics={f'char_{i}': ['accuracy'] for i in range(self.max_length)}
         )
         
-        logger.info("ETAPA 3/5: Construção do modelo concluída.")
+        logger.info("ETAPA 3/5: Construção do modelo (com data augmentation e regularização) concluída.")
         self.model.summary()
 
     def train_model(self, data_dir, epochs=30, batch_size=128, validation_split=0.2, model_save_path='saved_model'):
@@ -246,7 +260,7 @@ class AdvancedCaptchaSolver:
         # Callbacks
         callbacks_list = [
             callbacks.ModelCheckpoint(
-                filepath=os.path.join(model_save_path, 'model_epoch_{epoch:02d}.h5'),
+                filepath=os.path.join(model_save_path, 'model_epoch_{epoch:02d}.keras'),
                 save_best_only=True,
                 monitor='val_loss',
                 mode='min'
@@ -262,24 +276,22 @@ class AdvancedCaptchaSolver:
             ),
             callbacks.BackupAndRestore(
                 backup_dir=os.path.join(model_save_path, 'backup')
-            ),
-            TqdmCallback(verbose=2)  # Barra de progresso detalhada e em tempo real para cada época
+            )
+            # TqdmCallback removido para um log mais limpo. Keras usará seu log padrão.
         ]
         logger.info("ETAPA 4/5: Configuração de callbacks concluída.")
         
         logger.info("ETAPA 5/5: Iniciando o treinamento do modelo...")
-        # Treinar modelo
         history = self.model.fit(
             train_ds,
-            validation_data=val_ds,
             epochs=epochs,
+            validation_data=val_ds,
             callbacks=callbacks_list,
-            verbose=0  # Desativa o log padrão para usar o TQDM
+            verbose=1  # 0 = silent, 1 = progress bar (por época), 2 = one line per epoch.
         )
-        logger.info("ETAPA 5/5: Treinamento concluído.")
-        
+        logger.info("Treinamento concluído.")
         # Salvar modelo final
-        self.model.save(os.path.join(model_save_path, 'final_model.h5'))
+        self.model.save(os.path.join(model_save_path, 'final_model.keras'))
         logger.info(f"Modelo salvo em {model_save_path}")
         
         return history

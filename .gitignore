@@ -173,4 +173,4 @@ downloads
 *.log
 *.pyc
 .captcha_cache
-captcha_cnn
+captcha_cnn/
