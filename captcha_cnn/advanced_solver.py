@@ -171,48 +171,44 @@ class AdvancedCaptchaSolver:
 
     def build_optimized_model(self):
         """Constrói modelo com data augmentation, regularização e batch normalization"""
-        logger.info("ETAPA 3/5: Construindo o modelo...")
+        logger.info("ETAPA 3/5: Construindo o modelo (ESTRATÉGIA ANTI-OVERFITTING ATIVA)..." )
         input_layer = layers.Input(shape=(40, 120, 1), name='input')
 
-        # Data Augmentation Block
-        # Estas camadas são ativas apenas durante o treinamento.
+        # Data Augmentation Block (MAIS AGRESSIVO)
+        # RandomFlip removido, pois pode invalidar caracteres (b vs d).
         data_augmentation_layers = tf.keras.Sequential([
-            layers.RandomFlip("horizontal"), # Inversão horizontal é mais segura para texto
-            layers.RandomRotation(0.05),      # Rotação pequena (e.g., +/- 5%)
-            layers.RandomZoom(0.05),        # Zoom pequeno (e.g., +/- 5%)
-            # layers.RandomContrast(0.05)   # Contraste pode ser adicionado se necessário
+            layers.RandomRotation(0.1),      # Aumentado para +/- 10%
+            layers.RandomZoom(0.1),        # Aumentado para +/- 10%
+            layers.RandomContrast(0.2)   # Adicionado contraste com fator maior
         ], name='data_augmentation')
         
         x = data_augmentation_layers(input_layer) # Aplicar augmentation à entrada
         
-        # Bloco Convolucional 1
-        # A primeira camada convolucional agora recebe 'x' (saída da augmentation)
+        # Bloco Convolucional 1 (Mantido)
         x = layers.Conv2D(32, (3, 3), activation='relu', padding='same', kernel_regularizer=regularizers.l2(0.001))(x) 
         x = layers.BatchNormalization()(x)
         x = layers.MaxPooling2D((2, 2))(x)
-        x = layers.Dropout(0.3)(x) # Aumentado de 0.25
+        x = layers.Dropout(0.3)(x)
         
-        # Bloco Convolucional 2
+        # Bloco Convolucional 2 (Mantido)
         x = layers.Conv2D(64, (3, 3), activation='relu', padding='same', kernel_regularizer=regularizers.l2(0.001))(x)
         x = layers.BatchNormalization()(x)
         x = layers.MaxPooling2D((2, 2))(x)
-        x = layers.Dropout(0.3)(x) # Aumentado de 0.25
+        x = layers.Dropout(0.3)(x)
         
-        # Bloco Convolucional 3
-        x = layers.Conv2D(128, (3, 3), activation='relu', padding='same', kernel_regularizer=regularizers.l2(0.001))(x)
+        # Bloco Convolucional 3 (SIMPLIFICADO)
+        x = layers.Conv2D(64, (3, 3), activation='relu', padding='same', kernel_regularizer=regularizers.l2(0.001))(x) # Reduzido de 128 para 64 filtros
         x = layers.BatchNormalization()(x)
         x = layers.MaxPooling2D((2, 2))(x)
-        x = layers.Dropout(0.3)(x) # Aumentado de 0.25
+        x = layers.Dropout(0.3)(x)
         
-        # Camadas Densas
+        # Camadas Densas (SIMPLIFICADO)
         x = layers.Flatten()(x)
-        # Camada Densa principal já tinha L2, mantido.
-        x = layers.Dense(256, activation='relu', kernel_regularizer=regularizers.l2(0.001))(x) 
+        x = layers.Dense(128, activation='relu', kernel_regularizer=regularizers.l2(0.001))(x) # Reduzido de 256 para 128 neurônios
         x = layers.BatchNormalization()(x)
-        x = layers.Dropout(0.5)(x) # Mantido em 0.5, já é uma taxa alta.
+        x = layers.Dropout(0.5)(x)
         
         # Múltiplas saídas (uma para cada caractere)
-        # Adicionada regularização L2 às camadas de saída.
         outputs = [
             layers.Dense(len(self.CHARS), activation='linear', name=f'char_{i}', kernel_regularizer=regularizers.l2(0.001))(x)
             for i in range(self.max_length)
@@ -220,15 +216,15 @@ class AdvancedCaptchaSolver:
         
         self.model = models.Model(inputs=input_layer, outputs=outputs)
         
-        # Compilar modelo (o otimizador Adam com lr=0.0001 é definido no __init__)
+        # Compilar modelo
         loss_function = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
         self.model.compile(
-            optimizer=self.optimizer, # self.optimizer já está configurado
+            optimizer=self.optimizer, 
             loss={f'char_{i}': loss_function for i in range(self.max_length)},
             metrics={f'char_{i}': ['accuracy'] for i in range(self.max_length)}
         )
         
-        logger.info("ETAPA 3/5: Construção do modelo (com data augmentation e regularização) concluída.")
+        logger.info("ETAPA 3/5: Construção do modelo (simplificado e com augmentation agressiva) concluída.")
         self.model.summary()
 
     def train_model(self, data_dir, epochs=30, batch_size=128, validation_split=0.2, model_save_path='saved_model'):
