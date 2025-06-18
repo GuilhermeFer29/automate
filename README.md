@@ -56,41 +56,29 @@ Este desafio envolve o reconhecimento de caracteres em imagens CAPTCHA. Duas abo
 
 ##### a) Solução com Modelo Pré-treinado e OCR (Tesseract)
 *   **Localização do Script:** `desafios/3 - Difícil/01 - Text Captcha/script.py`
-*   **Descrição:** Este script tenta resolver CAPTCHAs do site `captcha.com/demos/features/captcha-demo.aspx`.
+*   **Descrição:** (Abordagem inicial) Este script tenta resolver CAPTCHAs do site `captcha.com/demos/features/captcha-demo.aspx` utilizando um modelo Keras pré-treinado e OCR Tesseract como fallback.
     1.  **Carregamento do Modelo e Selenium**: Carrega um modelo Keras (`final_model.h5`) pré-treinado e inicializa um driver Selenium.
     2.  **Loop de Tentativas**: Localiza a imagem do CAPTCHA (link direto ou base64), baixa/decodifica.
     3.  **Predição com Modelo Próprio**: A imagem é pré-processada e o modelo carregado prediz os 10 caracteres.
     4.  **Fallbacks com OCR (Tesseract)**: Se a predição do modelo falhar ou a imagem for JPEG numérica, usa `pytesseract` com whitelists específicas.
     5.  **Envio e Avaliação**: Envia o texto resolvido, verifica o resultado, calcula a taxa de acerto e continua até atingir 75% de acerto em 10 tentativas.
 
-##### b) Sistema Avançado de Treinamento de Modelo CAPTCHA
-*   **Localização do Script Principal:** `captcha_cnn/advanced_solver.py`
-*   **Descrição da Solução:** Para criar um resolvedor de CAPTCHA robusto e adaptável, foi implementado um sistema completo de treinamento de um novo modelo de Rede Neural Convolucional (CNN) com as seguintes características:
-    *   **Modelo CNN Multi-Output:**
-        *   Utiliza uma arquitetura CNN para extração de características das imagens CAPTCHA.
-        *   Possui múltiplas cabeças de saída (uma para cada caractere do CAPTCHA, configurado para `max_length=10`), permitindo a predição de cada caractere individualmente.
-        *   As camadas de saída utilizam ativação linear para produzir logits, e a função de perda `SparseCategoricalCrossentropy` é configurada com `from_logits=True` para maior estabilidade numérica e eficiência.
-    *   **Pipeline de Dados Flexível e Eficiente:**
-        *   **Tratamento de Labels:** O sistema aceita labels de CAPTCHA com tamanho variável. Labels menores que o `max_length` (10 caracteres) são preenchidos com o caractere `_` (underscore) à direita, e labels maiores são truncados para garantir um tamanho fixo para o modelo.
-        *   **Processamento Misto de Imagens:** O modelo é treinado para reconhecer imagens CAPTCHA fornecidas tanto como caminhos de arquivo quanto como strings codificadas em base64. Durante a fase de pré-processamento, uma porção das imagens é convertida aleatoriamente para o formato base64 antes de ser processada, garantindo que o modelo seja robusto a ambos os tipos de entrada.
-        *   **Pré-processamento e Cache de Dados:**
-            *   As imagens são convertidas para escala de cinza, redimensionadas para um tamanho padrão (40x120 pixels) e normalizadas (valores de pixel entre 0 e 1).
-            *   Um sistema de cache explícito foi implementado: os dados processados (imagens como arrays NumPy e labels codificados) são salvos em arquivos `.npz` (por exemplo, `.captcha_cache/train_data_cache.npz`). Em execuções subsequentes, se esses arquivos de cache existirem, os dados são carregados diretamente deles, pulando a demorada etapa de pré-processamento.
-    *   **Monitoramento e Feedback Visual Detalhado:**
-        *   **Barras de Progresso em Múltiplas Etapas:**
-            *   **Varredura de Arquivos:** Uma barra de progresso `tqdm` é exibida durante a varredura inicial dos diretórios em busca dos arquivos de imagem.
-            *   **Pré-processamento de Dados:** Barras de progresso `tqdm` separadas e detalhadas (com contagem, velocidade e tempo estimado) são mostradas durante o pré-processamento e criação dos arquivos de cache para os conjuntos de treino e validação.
-            *   **Treinamento de Épocas:** O callback `TqdmCallback(verbose=2)` do Keras é utilizado para exibir uma barra de progresso limpa e que se atualiza em tempo real para cada época de treinamento, mostrando o avanço dos lotes (batches) e as métricas de `loss` e `accuracy`.
-        *   **Logging Informativo:** Mensagens de log são geradas para cada etapa principal do pipeline, facilitando o acompanhamento e a depuração.
-    *   **Configuração e Otimização do Treinamento:**
-        *   O modelo é treinado utilizando o otimizador Adam.
-        *   São empregados callbacks essenciais do Keras: `ModelCheckpoint`, `EarlyStopping`, e `ReduceLROnPlateau`.
-    *   **Como Executar o Treinamento:**
-        O script de treinamento `captcha_cnn/advanced_solver.py` pode ser executado a partir da linha de comando.
-        Exemplo:
-        ```bash
-        python captcha_cnn/advanced_solver.py --data_dir caminho/para/imagens_captcha --model_save_path caminho/para/modelo_salvo --epochs 20 --batch_size 64
-        ```
-
+##### c) Solução Otimizada com API OpenAI (GPT-4o) e Pré-processamento Avançado
+*   **Localização do Script:** `desafios/3 - Difícil/01 - Text Captcha/script.py` (mesmo script, mas com lógica evoluída)
+*   **Descrição:** Esta abordagem foca em utilizar a API OpenAI (modelo `gpt-4o`) para o reconhecimento dos caracteres do CAPTCHA, com ênfase em um robusto pipeline de pré-processamento de imagem e otimizações de interação.
+    1.  **Interação com a Página (Selenium)**: Utiliza Selenium WebDriver para navegação, obtenção da imagem CAPTCHA e submissão da resposta.
+    2.  **Obtenção e Sanitização da Imagem**: A imagem do CAPTCHA é obtida (seja como string base64 embutida ou baixada de uma URL). É realizada uma sanitização inicial com OpenCV, decodificando a imagem e re-encodando para o formato PNG para corrigir potenciais erros de metadados (como avisos `libpng warning: tEXt: CRC error`).
+    3.  **Pré-processamento Avançado da Imagem (OpenCV)**:
+        *   Conversão para escala de cinza.
+        *   Aplicação de filtro de Mediana (`cv2.medianBlur`) para redução de ruído.
+        *   Melhoria de contraste utilizando CLAHE (Contrast Limited Adaptive Histogram Equalization).
+        *   Binarização da imagem utilizando `cv2.adaptiveThreshold` para isolar os caracteres.
+    4.  **Resolução com API OpenAI (GPT-4o)**:
+        *   A imagem pré-processada é enviada (como base64) para o modelo `gpt-4o` da OpenAI.
+        *   O prompt para a API foi refinado para instruir o modelo a retornar apenas os 6 caracteres alfanuméricos, sem texto adicional, e o parâmetro `max_tokens` foi ajustado para 10 para otimizar a resposta.
+        *   **Nota Importante sobre a Chave API**: Para fins de análise e teste temporário, a chave da API OpenAI (`sk-proj-ClH...`) foi diretamente inserida no código. **Esta é uma prática insegura para produção e a chave deve ser removida ou gerenciada via variáveis de ambiente (ex: arquivo `.env`) após a análise.**
+    5.  **Fallback para OCR (Tesseract)**: Embora o foco seja na API OpenAI, uma lógica de fallback para Tesseract ainda existe, mas com menor prioridade.
+    6.  **Validação de Resultado e Loop de Tentativas**: Após submeter a resposta, o resultado é verificado de forma robusta (normalizando o texto de validação e usando `WebDriverWait`). O script continua tentando resolver CAPTCHAs em loop, com uma pausa de 3.5 segundos entre cada tentativa para estabilizar a interação e evitar sobrecarga.
+    7.  **Logging**: Logs foram ajustados para reduzir a verbosidade, focando em informações essenciais sobre o progresso e erros críticos.
 ---
 *Este README foi gerado e atualizado por Cascade, seu assistente de codificação IA.*
